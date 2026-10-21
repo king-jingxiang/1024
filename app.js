@@ -4,7 +4,7 @@
   /* ========================================================
      数据区：想加题、换答案，只改这里
      ======================================================== */
-  const STORE_KEY = 'ai1024-failbench-v1';
+  const STORE_KEY = 'ai1024-failbench-v2';
 
   const COLORS = {
     red: { name: '红', hex: '#df3a1f' },
@@ -14,128 +14,192 @@
   };
   const COLOR_KEYS = Object.keys(COLORS);
 
+  /* ========================================================
+     伪随机与题目生成器
+     ======================================================== */
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function random() {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function shuffle(list, random) {
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      const temp = list[i];
+      list[i] = list[j];
+      list[j] = temp;
+    }
+    return list;
+  }
+
+  // 把 total 拆成 parts 份，每份落在 [min, max] 之间
+  function randomParts(random, total, parts, min, max) {
+    const values = Array(parts).fill(min);
+    let rest = total - parts * min;
+
+    while (rest > 0) {
+      const open = [];
+      values.forEach((value, index) => {
+        if (value < max) open.push(index);
+      });
+      if (!open.length) break;
+      values[open[Math.floor(random() * open.length)]] += 1;
+      rest -= 1;
+    }
+
+    return values;
+  }
+
+  // 006：用算法把方框切成 10 块矩形，天然保证存在一个铺满且不重叠的解
+  function makePackPuzzle(seed) {
+    const frame = 13;
+    const random = mulberry32(seed);
+    const rowCounts = shuffle([3, 3, 4], random);
+    const rowHeights = shuffle(randomParts(random, frame, 3, 3, 6), random);
+    const cuts = [];
+
+    rowHeights.forEach((height, row) => {
+      randomParts(random, frame, rowCounts[row], 2, 7).forEach(width => {
+        cuts.push({ w: width, h: height });
+      });
+    });
+
+    // 窄的块配窄的数字，让“数字有尺寸”这件事一眼看得见
+    cuts.sort((a, b) => a.w - b.w || a.h - b.h);
+    const labels = ['1', '4', '7', '3', '5', '2', '6', '9', '0', '8'];
+
+    return {
+      frame,
+      pieces: cuts.map((cut, index) => ({ d: labels[index], w: cut.w, h: cut.h }))
+    };
+  }
+
+  const PACK_PUZZLE = makePackPuzzle(1024);
+
   const QUESTIONS = [
     {
       id: 1,
       tags: ['视觉', '空间匹配'],
       title: '给 A–E 找回它们的头',
-      desc: '图中每只鹅的身体都标了字母，旁边散落着带编号的鹅头。把每只身体对应的头部编号填进去——别顺着脖子瞎猜。',
+      desc: '图中每只仙鹤的身体都标了字母，旁边散落着带编号的仙鹤头。把每只身体对应的头部编号填进去。',
       type: 'match',
       letters: ['A', 'B', 'C', 'D', 'E'],
       media: {
         type: 'image',
         src: 'imgs/001.jpg',
-        alt: '第一题配图：标有 A–E 的鹅身体与带编号的鹅头'
+        alt: '第一题配图：标有 A–E 的仙鹤身体与带编号的仙鹤头'
       },
-      answer: null,
-      quiet: '答案先留着，评论区见。真正的提示：不要从身体找头，反过来，从头找脖子。'
+      analysis: {
+        verdict: '它能认出一整只仙鹤，却对不上十只仙鹤的头。',
+        weak: '细粒度局部匹配与多目标身份绑定。整图描述没问题，一旦要在 A–E 和一堆编号之间建立一一对应，就会错配、重号，甚至编出图上根本不存在的编号。',
+        why: '视觉编码器把图像压成低分辨率的 patch 向量，颈部这种细窄、低对比的连接处最先被丢掉；同时模型没有“逐一比对、排除候选”的工作记忆，多个相似目标同时在场时会串号。这是组合匹配问题，不是识别问题。',
+        ability: '细节辨别 + 身份绑定 + 系统性排除，也就是人类靠工作记忆完成的那部分。',
+        fix: '别让它“再看一眼”，把任务拆成可验证的子步骤：先定位每只身体的颈部朝向，再逐个裁出头部候选，用断口形状与朝向的一致性打分，最后做一次全局一一校验。裁剪、放大、标注这类工具，比换一个更大的模型更管用。',
+        human: '人类只要抓住“颈部断口必须吻合”这一条物理约束，几秒到几十秒就能配完，准确率接近满分。这类细粒度匹配是人类视觉的出厂设置，和智力关系不大。'
+      }
     },
     {
       id: 2,
       tags: ['视觉搜索', '注意力'],
       title: '在草丛里找到那株四叶草',
-      desc: '满屏三叶草里混进了一株四叶草。在图上点击你找到的位置，最多标 3 处；点已有标记可以删除重来。',
+      desc: '满屏三叶草里混进了一株四叶草。在图上点击你找到的位置，只能标 1 处；点已有标记可以删除重来。',
       type: 'mark',
-      maxMarks: 3,
+      maxMarks: 1,
       media: {
         type: 'image',
         src: 'imgs/002.png',
         alt: '第二题配图：一片密集的三叶草地'
       },
-      answer: null,
-      quiet: '答案先留着。把图放大，一株一株排除；AI 的耐心就是在这里没的。'
+      analysis: {
+        verdict: '人类靠扫视，模型靠想象。',
+        weak: '稀疏目标的全程视觉搜索。满屏三叶草里只有一株四叶草，模型要么只看了局部就下结论，要么直接“编”一个坐标；要求它标出位置时，命中率基本靠运气。',
+        why: '注意力是全局加权，不是逐区域扫描；高分辨率图又会被下采样，四叶草多出来的那一叶可能只剩几个像素。更关键的是模型没有“我还没看完”的元认知，不会主动要求放大或分块。',
+        ability: '视觉搜索与持续注意。目标与干扰项高度相似、只多一片叶，没法靠单一特征“弹”出来，必须一处一处排除。',
+        fix: '工程解法是滑动窗口：把图切成重叠的小块逐块判定，先按“四叶、对称”做候选筛选，再对候选区域放大复核；也可以先用检测模型出框，让模型只做确认。一次性整图问答是最差的方案。',
+        human: '人类用特征引导的搜索策略，每秒约 3–4 个注视点，通常几十秒内完成；找不到时还会主动换扫描路径。这个能力稳定到可以当游戏玩，在模型那里却仍是硬伤。'
+      }
     },
     {
       id: 3,
-      tags: ['动图', '动态追踪'],
-      title: '盯住那颗不安分的小球',
-      desc: '动图里的小球会在干扰项之间来回穿梭。看完之后，写下小球最后停下的位置。素材上传后本题自动解锁。',
-      type: 'text',
-      placeholder: '例如：右上角的红色区域 / 最后停在 3 号格',
+      tags: ['视频', '视觉搜索'],
+      title: '找出亮红灯的碰碰车',
+      desc: '碰碰车会亮起红灯，全片一共两处。视频播放结束后会自动暂停，点「重放」可以再看一遍；在停住的画面上点击标记，一共标 2 处，点已有标记可以删除重来。',
+      type: 'mark',
+      maxMarks: 2,
       media: {
-        type: 'sequence',
-        candidates: ['imgs/003.gif', 'imgs/003.webp', 'imgs/003.mp4'],
-        alt: '第三题动图：一颗不断移动的小球'
+        type: 'video',
+        src: 'imgs/003.mp4',
+        alt: '第三题视频：一群碰碰车在场地里移动，个别车辆亮起红灯'
       },
-      answer: null,
-      quiet: '答案先留着。动图上线后建议看三遍：第一遍看球，第二遍看背景，第三遍你会发现自己被骗了。'
+      analysis: {
+        verdict: '红灯亮了几帧，模型可能一帧都没抽到。',
+        weak: '瞬时事件的时序定位。红灯只亮很短一段时间，模型按固定间隔抽帧，大概率整段错过；即便看到了，也很难说清是哪辆车、在第几秒。',
+        why: '主流视频理解按 1fps 左右均匀采样，短于采样间隔的事件在输入里根本不存在；时间维被压缩成全局表示后，只剩“发生了什么”，丢了“何时发生”。这是采样率与时间分辨率的问题，不是理解力的问题。',
+        ability: '时序事件检测 + 跨帧目标跟踪 + 对短暂状态变化的记忆。',
+        fix: '提高采样率，或先用低层视觉线索（红色高亮区域）触发关键帧，再做跟踪与确认；也可以先跟踪每辆车，再逐帧判断灯色。把“找红灯”降级成颜色检测加跟踪，比让模型硬看完整段视频可靠得多。',
+        human: '人类有连续视觉流，红灯一亮外周视觉就会捕捉到，甚至不需要主动盯着，再回放确认即可。人类在这类任务上接近满分，唯一的天敌是不注意盲视——这也是题目允许重放的原因。'
+      }
     },
     {
       id: 4,
-      tags: ['常识陷阱', '数值'],
-      title: '9.11 和 9.9，哪个更大？',
-      desc: '没有单位，没有上下文，就是两个数。选一个，然后别改。',
-      type: 'choice',
-      choices: ['9.11', '9.9', '一样大', '取决于版本号'],
-      display: '<span class="display-big">9.11 <span class="vs">VS</span> 9.9</span>',
-      answer: '9.9 更大。9.11 是 9 + 0.11，9.9 是 9 + 0.90。很多模型会把它们当成版本号来比，于是理直气壮地宣布 9.11 更大。'
+      tags: ['视觉', '找不同'],
+      title: '上下两栋姜饼屋，差在哪几处？',
+      desc: '同一张图上下两版，细节被悄悄动过手脚。在图上点击标出不同之处，最多 12 处；点已有标记可以删掉重标。',
+      type: 'diff',
+      maxMarks: 12,
+      media: {
+        type: 'image',
+        src: 'imgs/004.jpg',
+        alt: '上下两幅姜饼屋插画，细节存在差异'
+      },
+      analysis: {
+        verdict: '它擅长“看图说话”，不擅长“找茬”。',
+        weak: '两图之间的逐区域比对。模型倾向于分别描述上下两张图，再总结“差异”，真正的细节改动在描述阶段就被抹平；同时容易把压缩噪声当成不同，反而漏掉语义级改动。',
+        why: '自然语言描述本身是有损压缩，输出的字数远少于图像信息；两幅图之间也没有显式的对齐操作，差异只能靠内部隐式比较，而隐式比较对局部小改动极不敏感。',
+        ability: '变化检测 + 空间对齐 + 细节记忆，本质是同一场景的 A/B 比对。',
+        fix: '先配准再求差：对齐两图后做图像差分、SSIM 或光流，把差异区域圈出来，再让模型只负责语义确认。这是成熟的 CV 流水线，纯 VLM 问答恰好是在最不擅长的环节硬扛。',
+        human: '人类用“扫视—比较—记忆”的循环，找十处差异一般一到几分钟；对语义改动（方向、数量、颜色）极敏感，对像素噪声反而不敏感，正好和模型相反。'
+      }
     },
     {
       id: 5,
-      tags: ['字母计数', 'Tokenizer'],
-      title: 'strawberry 里有几个 r？',
-      desc: '一个字母都别漏。答案不是让你写代码，是让你用眼睛数。',
-      type: 'number',
-      inputLabel: '你的答案（数字）',
-      display: '<span class="word-display">strawberry</span>',
-      answer: '3 个。s-t-r-a-w-b-e-r-r-y，r 分别在第 3、8、9 位。模型的 tokenizer 看到的是一整块 token，不是一个个字母，所以它只能猜。'
+      tags: ['逻辑', '线性代数'],
+      title: '把这面灯，全部关掉',
+      desc: '5×5 的灯阵，每按一盏，它自己和上下左右四盏会一起翻转。目标是全部熄灭。硬试很难收尾！',
+      type: 'lights',
+      size: 5,
+      seed: 1024,
+      analysis: {
+        verdict: '25 盏灯、2^25 种状态，模型没有第二层棋盘可以推演。',
+        weak: '多步规划与状态空间搜索。贪心或“看起来快灭了”的启发式会走进死胡同；模型也无法在脑内稳定维护 25 个布尔变量，并按步回溯。',
+        why: '自回归生成是单向写 token，没有真正的搜索与回溯机制；上下文里的状态会随步数衰减。就算它知道该用线性代数，也常在异或和下标上算错——这题考的不是知识，是可执行的多步推理。',
+        ability: '组合搜索 + 抽象建模 + 长程状态管理：能不能把“按灯”翻译成 GF(2) 上的线性方程组。',
+        fix: '这是典型的“该用工具”的题：把“按 / 不按”记成 0 / 1，每盏灯的最终状态是它自己和相邻四格被按次数的异或和，写出 25×25 的增广矩阵，在 GF(2) 上高斯消元，再按解向量点灯。模型该做的是把问题形式化并调用代码，而不是凭直觉乱按——按的顺序不影响结果，同一盏按两次等于没按。',
+        human: '多数人不会解方程，但可以用“追灯法”逐行消元，几分钟能解完，也可以手试加记录。人类强在能把过程写在纸上当外部记忆，模型弱在必须一次算对。'
+      }
     },
     {
       id: 6,
-      tags: ['图形计数', '视觉'],
-      title: '这张图里，一共有多少个正方形？',
-      desc: '大小都算。别只数最小的那些，也别相信自己的第一遍。',
-      type: 'number',
-      inputLabel: '你的答案（数字）',
-      figure: `<div class="figure-paper">
-        <svg viewBox="0 0 360 360" role="img" aria-label="一个 4×4 的正方形网格">
-          <rect x="30" y="30" width="300" height="300" fill="none" stroke="currentColor" stroke-width="3.2"/>
-          <g stroke="currentColor" stroke-width="1.7" fill="none">
-            <path d="M105 30V330 M180 30V330 M255 30V330"/>
-            <path d="M30 105H330 M30 180H330 M30 255H330"/>
-          </g>
-        </svg>
-      </div>`,
-      answer: '30 个。1×1 有 16 个，2×2 有 9 个，3×3 有 4 个，4×4 有 1 个：16 + 9 + 4 + 1 = 30。'
-    },
-    {
-      id: 7,
-      tags: ['反直觉', '物理'],
-      title: '急加速时，气球往哪边跑？',
-      desc: '车里挂着一只氦气球，车子突然向前加速。气球会往哪边偏？',
-      type: 'choice',
-      choices: ['向前，朝车头', '向后，朝车尾', '原地不动', '左右乱晃'],
-      figure: `<div class="figure-paper">
-        <svg viewBox="0 0 420 250" role="img" aria-label="一辆向前加速的汽车，车内有一只氦气球">
-          <g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M80 32h84"/>
-            <path d="M153 22l12 10-12 10"/>
-          </g>
-          <text x="80" y="18" font-family="monospace" font-size="10" letter-spacing="2" fill="currentColor">ACCELERATION</text>
-          <path d="M40 200v-60c0-13 10-20 22-20h46l38-62h140l36 62h38c18 0 28 8 28 22v58z"
-                fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
-          <path d="M160 116l28-48h88l30 48z" fill="none" stroke="currentColor" stroke-width="2"/>
-          <path d="M232 112v20" stroke="currentColor" stroke-width="2"/>
-          <path d="M226 132h12" stroke="currentColor" stroke-width="2"/>
-          <path d="M232 112c-11 0-18-8-18-18s9-18 18-18 18 8 18 18-7 18-18 18z"
-                fill="#ff4a24" stroke="currentColor" stroke-width="2"/>
-          <circle cx="232" cy="94" r="3.5" fill="currentColor"/>
-          <circle cx="118" cy="200" r="26" fill="currentColor"/>
-          <circle cx="118" cy="200" r="10" fill="#fffdf6"/>
-          <circle cx="326" cy="200" r="26" fill="currentColor"/>
-          <circle cx="326" cy="200" r="10" fill="#fffdf6"/>
-          <path d="M30 228h360" stroke="currentColor" stroke-width="2" stroke-dasharray="8 7"/>
-        </svg>
-      </div>`,
-      answer: '向前，朝车头。车加速时，车内空气因惯性向后挤压，后部压力更高；氦气球比空气轻，被压力差推向压力更低的车头。和“人往后仰”相反，这才是这题的坑。'
-    },
-    {
-      id: 8,
-      tags: ['反应', '注意力'],
-      title: '别读字，读颜色',
-      desc: '用最快速度选出每个字的「墨水颜色」，不是它写的那个颜色。第一次点击开始计时。',
-      type: 'stroop',
-      answer: null
+      tags: ['横向思维', '空间'],
+      title: '把 0–9 全部塞进方框',
+      desc: '方框被切成了 10 块，每块尺寸都不一样，现在全部打散了。把十个数字拖回方框，不能重叠、不能超出。摆不平的时候，试试让数字横过来。',
+      type: 'pack',
+      frame: PACK_PUZZLE.frame,
+      pieces: PACK_PUZZLE.pieces,
+      analysis: {
+        verdict: '它会算面积，但不会“转一下试试”。',
+        weak: '二维几何布局与旋转。模型很难在“尺寸各异的矩形必须无缝铺满 13×13”这种约束下给出合法坐标，常见结果是重叠、越界或块数对不上；“把数字转 90°”这类非语义操作更是盲区。',
+        why: '位置和尺寸是连续几何量，语言模型输出的是离散 token，没有精确的坐标系；它也没有“试放—检查—撤回”的物理模拟过程。视觉 token 的分辨率同样不足以支撑精确到格子的布局。',
+        ability: '空间推理 + 约束满足（精确覆盖 / 多边形铺砌）+ 试错与修正。',
+        fix: '转成精确覆盖问题，用回溯加剪枝（如 Dancing Links）求解；也可以按面积、边长排序，先贴边放大块，把旋转当作搜索空间里的一个显式分支。关键是把“转一下”写进规则，而不是指望模型自己想到。数字不一定要站着：高的块横躺，窄的块竖着补缝，剩下的缝隙自己会露出来。',
+        human: '人类靠手：先放大块、贴角、留缝，几分钟内能拼完，还能边拼边改。八到十二岁的孩子就能做，成人的主要瓶颈是耐心而不是能力——手就是人类的外部搜索器。'
+      }
     }
   ];
 
@@ -225,9 +289,11 @@
   }
 
   function cardHTML(q) {
-    const body = q.type === 'stroop'
+    const solo = q.type === 'stroop' || q.type === 'lights' || q.type === 'pack';
+    const board = q.type === 'lights' || q.type === 'pack' ? ' q-play--board' : '';
+    const body = solo
       ? `<div class="q-body q-body--solo">
-           <div class="q-play">${playHTML(q)}</div>
+           <div class="q-play${board}">${playHTML(q)}</div>
          </div>`
       : `<div class="q-body">
            <div class="q-media-col">${mediaHTML(q)}</div>
@@ -247,7 +313,7 @@
       ${body}
       <div class="q-actions">
         <button class="btn btn-primary" data-lock type="button">锁定答案</button>
-        <button class="btn btn-ghost" data-reveal type="button" hidden>看解析</button>
+        <button class="btn btn-ghost" data-reveal type="button" hidden>看 AI 短板解析</button>
         <button class="mini-link" data-retry type="button" hidden>重答本题</button>
         <span class="q-tip">提交后可重答，成绩只保存在本机</span>
       </div>
@@ -256,11 +322,22 @@
   }
 
   function mediaHTML(q) {
-    if (q.type === 'mark') {
-      return `<figure class="q-media mark-wrap" data-mark>
-        <img src="${q.media.src}" alt="${q.media.alt}" draggable="false">
+    if (q.type === 'mark' || q.type === 'diff') {
+      const help = q.type === 'diff'
+        ? `点击图片标出不同 · 最多 ${q.maxMarks} 处 · 点标记可删除`
+        : `点击画面标记 · 最多 ${q.maxMarks} 处 · 点标记可删除`;
+      const isVideo = q.media && q.media.type === 'video';
+      const media = isVideo
+        ? `<video src="${q.media.src}" autoplay muted playsinline preload="auto" aria-label="${q.media.alt}"></video>`
+        : `<img src="${q.media.src}" alt="${q.media.alt}" draggable="false">`;
+      const toggle = isVideo
+        ? `<button class="mini-btn media-toggle" data-media-toggle type="button">重放</button>`
+        : '';
+      return `<figure class="q-media mark-wrap${isVideo ? ' mark-wrap--video' : ''}" data-mark>
+        ${media}
         <div class="mark-layer" data-mark-layer></div>
-        <div class="mark-help">点击图片标记 · 最多 ${q.maxMarks} 处 · 点标记可删除</div>
+        ${toggle}
+        <div class="mark-help">${help}</div>
       </figure>`;
     }
 
@@ -286,7 +363,7 @@
       return `<span class="play-title">身体 → 头部编号</span>
         ${q.letters.map(letter => `<div class="match-row">
           <span class="match-letter">${letter}</span>
-          <label class="sr-only" for="q${q.id}-${letter}">${letter} 鹅对应的头部编号</label>
+          <label class="sr-only" for="q${q.id}-${letter}">${letter} 仙鹤对应的头部编号</label>
           <input id="q${q.id}-${letter}" data-letter="${letter}" type="text" inputmode="numeric" maxlength="3" placeholder="头部编号" autocomplete="off">
         </div>`).join('')}
         <p class="play-note">编号直接填数字。不确定就凭第一眼，别来回改。</p>`;
@@ -295,8 +372,42 @@
     if (q.type === 'mark') {
       return `<span class="play-title">你的标记</span>
         <div class="mark-readout"><b data-mark-count>0</b><span>/ ${q.maxMarks} 处</span></div>
-        <p class="play-note">点击左侧图片放置标记，最多 ${q.maxMarks} 处。已放置的标记可以直接点掉。</p>
+        <p class="play-note">点击左侧画面放置标记，最多 ${q.maxMarks} 处。已放置的标记可以直接点掉。</p>
         <button class="mini-btn" data-clear-marks type="button" disabled>清除全部标记</button>`;
+    }
+
+    if (q.type === 'diff') {
+      return `<span class="play-title">你找到的不同</span>
+        <div class="mark-readout"><b data-mark-count>0</b><span>/ ${q.maxMarks} 处</span></div>
+        <p class="play-note">在图上点击标出不同，已放置的标记可以直接点掉。上下两版是同一张图，慢慢比对。</p>
+        <button class="mini-btn" data-clear-marks type="button" disabled>清除全部标记</button>`;
+    }
+
+    if (q.type === 'lights') {
+      return `<div class="lights-head">
+          <span class="play-title">灯阵 ${q.size}×${q.size}</span>
+          <span class="lights-stat">亮着 <b data-lights-lit>0</b></span>
+        </div>
+        <div class="lights-board" data-lights-board></div>
+        <div class="lights-foot">
+          <span class="lights-stat">按键 <b data-lights-moves>0</b></span>
+          <button class="mini-btn" data-lights-reset type="button">重开灯阵</button>
+        </div>
+        <p class="play-note">每按一盏，它和上下左右四盏一起翻转。全部熄灭后才可以锁定答案。</p>`;
+    }
+
+    if (q.type === 'pack') {
+      return `<div class="pack-head">
+          <span class="play-title">方框 ${q.frame}×${q.frame}</span>
+          <span class="pack-stat">已放入 <b data-pack-count>0</b> / ${q.pieces.length}</span>
+        </div>
+        <div class="pack-board">
+          <div class="pack-stage" data-pack-stage></div>
+        </div>
+        <div class="pack-tray-head">待放入的数字 <span>拖动进框 · 点击旋转 90° · 框内的块可拖回这里</span></div>
+        <div class="pack-tray" data-pack-tray></div>
+        <button class="mini-btn" data-pack-clear type="button">全部取出</button>
+        <p class="play-note">数字块尺寸各不相同，不能重叠，也不能超出方框。摆不平的时候，试试让它们横过来。</p>`;
     }
 
     if (q.type === 'text') {
@@ -341,7 +452,9 @@
     card.querySelector('[data-retry]').addEventListener('click', () => retryQuestion(q, card));
 
     if (q.type === 'match') bindMatch(q, card);
-    if (q.type === 'mark') bindMark(q, card);
+    if (q.type === 'mark' || q.type === 'diff') bindMark(q, card);
+    if (q.type === 'lights') bindLights(q, card);
+    if (q.type === 'pack') bindPack(q, card);
     if (q.type === 'text') bindText(q, card);
     if (q.type === 'number') bindNumber(q, card);
     if (q.type === 'choice') bindChoice(q, card);
@@ -350,6 +463,7 @@
     if (q.media && q.media.type === 'sequence') {
       setPlayWaiting(q, card, true);
       mountSequence(q, card);
+      if (state.locked[q.id]) applyLocked(q, card);
     } else if (state.locked[q.id]) {
       applyLocked(q, card);
     }
@@ -418,6 +532,17 @@
 
     if (!Array.isArray(answer.marks)) answer.marks = [];
 
+    const video = wrap.querySelector('video');
+    const toggleBtn = card.querySelector('[data-media-toggle]');
+    if (video && toggleBtn) {
+      toggleBtn.addEventListener('click', event => {
+        event.stopPropagation();
+        video.currentTime = 0;
+        const playPromise = video.play();
+        if (playPromise && typeof playPromise.catch === 'function') playPromise.catch(() => {});
+      });
+    }
+
     function paint() {
       layer.innerHTML = '';
       answer.marks.forEach((mark, index) => {
@@ -445,7 +570,7 @@
 
     wrap.addEventListener('click', event => {
       if (state.locked[q.id]) return;
-      if (event.target.closest('.pin')) return;
+      if (event.target.closest('.pin, [data-media-toggle]')) return;
 
       if (answer.marks.length >= max) {
         toast(`最多标 ${max} 处，先点掉一个再标。`);
@@ -466,6 +591,335 @@
     clearBtn.addEventListener('click', () => {
       if (state.locked[q.id]) return;
       answer.marks = [];
+      saveState();
+      paint();
+      setStatus(q, card);
+    });
+
+    paint();
+  }
+
+  /* ---------- 005 灯阵 ---------- */
+  function toggleLamp(board, size, index) {
+    const x = index % size;
+    const y = Math.floor(index / size);
+    [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([dx, dy]) => {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= size || ny >= size) return;
+      const at = ny * size + nx;
+      board[at] = !board[at];
+    });
+  }
+
+  // 先随机按几盏灯，再把这个局面交给玩家 —— 所以一定有解
+  function makeLights(q) {
+    const size = q.size;
+    const random = mulberry32(q.seed);
+    const board = Array(size * size).fill(false);
+    const presses = 7 + Math.floor(random() * 3);
+    const picked = new Set();
+
+    while (picked.size < presses) {
+      picked.add(Math.floor(random() * size * size));
+    }
+    picked.forEach(index => toggleLamp(board, size, index));
+
+    if (!board.some(Boolean)) {
+      toggleLamp(board, size, Math.floor(size * size / 2));
+    }
+    return board;
+  }
+
+  function bindLights(q, card) {
+    const size = q.size;
+    const total = size * size;
+    const answer = getAnswer(q);
+    const initial = makeLights(q);
+    const saved = Array.isArray(answer.lights) && answer.lights.length === total;
+
+    answer.lights = saved ? answer.lights.map(Boolean) : initial.slice();
+    if (!saved || typeof answer.moves !== 'number') answer.moves = 0;
+
+    const boardEl = card.querySelector('[data-lights-board]');
+    const litEl = card.querySelector('[data-lights-lit]');
+    const movesEl = card.querySelector('[data-lights-moves]');
+    const resetBtn = card.querySelector('[data-lights-reset]');
+
+    boardEl.style.setProperty('--n', String(size));
+    boardEl.innerHTML = '';
+
+    const lamps = answer.lights.map((_, index) => {
+      const lamp = document.createElement('button');
+      lamp.type = 'button';
+      lamp.className = 'lamp';
+      lamp.setAttribute('aria-label', `第 ${Math.floor(index / size) + 1} 行第 ${index % size + 1} 列的灯`);
+      lamp.addEventListener('click', () => {
+        if (state.locked[q.id]) return;
+        toggleLamp(answer.lights, size, index);
+        answer.moves += 1;
+        saveState();
+        paint();
+        setStatus(q, card);
+        updateProgress();
+        if (answer.lights.every(value => !value)) {
+          toast('全灭了。现在可以锁定答案。');
+        }
+      });
+      boardEl.appendChild(lamp);
+      return lamp;
+    });
+
+    function paint() {
+      const lit = answer.lights.filter(Boolean).length;
+
+      answer.lights.forEach((value, index) => {
+        lamps[index].dataset.lit = String(value);
+        lamps[index].setAttribute('aria-pressed', String(value));
+        lamps[index].disabled = !!state.locked[q.id];
+      });
+
+      litEl.textContent = String(lit);
+      movesEl.textContent = String(answer.moves || 0);
+      boardEl.classList.toggle('is-solved', lit === 0);
+      resetBtn.disabled = !!state.locked[q.id];
+    }
+
+    resetBtn.addEventListener('click', () => {
+      if (state.locked[q.id]) return;
+      answer.lights = initial.slice();
+      answer.moves = 0;
+      saveState();
+      paint();
+      setStatus(q, card);
+    });
+
+    paint();
+  }
+
+  /* ---------- 006 数字装箱 ---------- */
+  function bindPack(q, card) {
+    const answer = getAnswer(q);
+    const answerRot = answer.rot || (answer.rot = {});
+    const answerPos = answer.pos || (answer.pos = {});
+
+    q.pieces.forEach(piece => {
+      if (!Number.isInteger(answerRot[piece.d])) answerRot[piece.d] = 0;
+      const pos = answerPos[piece.d];
+      if (pos && (!Number.isInteger(pos.x) || !Number.isInteger(pos.y))) {
+        delete answerPos[piece.d];
+      }
+    });
+
+    const stage = card.querySelector('[data-pack-stage]');
+    const tray = card.querySelector('[data-pack-tray]');
+    const countEl = card.querySelector('[data-pack-count]');
+    const clearBtn = card.querySelector('[data-pack-clear]');
+    const TRAY_CELL = 20;
+
+    stage.style.setProperty('--n', String(q.frame));
+
+    function dimsOf(piece) {
+      const turned = answerRot[piece.d] % 2;
+      return turned ? { w: piece.h, h: piece.w } : { w: piece.w, h: piece.h };
+    }
+
+    function placedCount() {
+      return q.pieces.filter(piece => answerPos[piece.d]).length;
+    }
+
+    function occupied(except) {
+      const cells = new Set();
+      q.pieces.forEach(piece => {
+        if (piece.d === except) return;
+        const pos = answerPos[piece.d];
+        if (!pos) return;
+        const dims = dimsOf(piece);
+        for (let y = pos.y; y < pos.y + dims.h; y++) {
+          for (let x = pos.x; x < pos.x + dims.w; x++) {
+            cells.add(y * 100 + x);
+          }
+        }
+      });
+      return cells;
+    }
+
+    function fits(piece, x, y) {
+      const dims = dimsOf(piece);
+      if (x < 0 || y < 0 || x + dims.w > q.frame || y + dims.h > q.frame) return false;
+
+      const cells = occupied(piece.d);
+      for (let yy = y; yy < y + dims.h; yy++) {
+        for (let xx = x; xx < x + dims.w; xx++) {
+          if (cells.has(yy * 100 + xx)) return false;
+        }
+      }
+      return true;
+    }
+
+    function rotate(piece, onBoard) {
+      if (state.locked[q.id]) return;
+
+      const before = answerRot[piece.d] % 4;
+      answerRot[piece.d] = (before + 1) % 4;
+
+      if (onBoard) {
+        const pos = answerPos[piece.d];
+        if (!fits(piece, pos.x, pos.y)) {
+          answerRot[piece.d] = before;
+          toast('这个位置转不开，先挪个地方再转。');
+          return;
+        }
+      }
+
+      saveState();
+      paint();
+      setStatus(q, card);
+    }
+
+    function attachDrag(el, piece, onBoard) {
+      el.addEventListener('pointerdown', event => {
+        if (state.locked[q.id] || event.button > 0) return;
+        event.preventDefault();
+
+        const rect = el.getBoundingClientRect();
+        const stageRect = stage.getBoundingClientRect();
+        const cell = stageRect.width / q.frame;
+        const dims = dimsOf(piece);
+        const grabX = (event.clientX - rect.left) * (dims.w * cell / rect.width);
+        const grabY = (event.clientY - rect.top) * (dims.h * cell / rect.height);
+        const startX = event.clientX;
+        const startY = event.clientY;
+        let moved = false;
+        let ghost = null;
+
+        function onMove(moveEvent) {
+          if (!moved && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > 6) {
+            moved = true;
+            el.classList.add('is-dragging');
+
+            ghost = document.createElement('div');
+            ghost.className = 'pack-ghost';
+            ghost.style.width = `${dims.w * cell}px`;
+            ghost.style.height = `${dims.h * cell}px`;
+
+            const glyph = document.createElement('span');
+            glyph.textContent = piece.d;
+            glyph.style.transform = `rotate(${(answerRot[piece.d] % 4) * 90}deg)`;
+            ghost.appendChild(glyph);
+            document.body.appendChild(ghost);
+          }
+
+          if (moved) {
+            ghost.style.left = `${moveEvent.clientX - grabX}px`;
+            ghost.style.top = `${moveEvent.clientY - grabY}px`;
+          }
+        }
+
+        function onUp(upEvent) {
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+          window.removeEventListener('pointercancel', onUp);
+          el.classList.remove('is-dragging');
+          if (ghost) ghost.remove();
+
+          if (!moved) {
+            rotate(piece, onBoard);
+            return;
+          }
+
+          const stageNow = stage.getBoundingClientRect();
+          const trayNow = tray.getBoundingClientRect();
+          const overTray = upEvent.clientX >= trayNow.left && upEvent.clientX <= trayNow.right
+            && upEvent.clientY >= trayNow.top && upEvent.clientY <= trayNow.bottom;
+
+          if (overTray) {
+            if (answerPos[piece.d]) {
+              delete answerPos[piece.d];
+              saveState();
+              toast('已放回下方待放入区域。');
+            }
+          } else {
+            const nowCell = stageNow.width / q.frame;
+            const x = Math.round((upEvent.clientX - grabX - stageNow.left) / nowCell);
+            const y = Math.round((upEvent.clientY - grabY - stageNow.top) / nowCell);
+
+            if (fits(piece, x, y)) {
+              answerPos[piece.d] = { x, y };
+              saveState();
+            } else if (onBoard) {
+              toast('放不下：超出方框，或会和别的数字重叠。拖回下方托盘可以取出。');
+            } else {
+              toast('放不下：超出方框，或会和别的数字重叠。');
+            }
+          }
+
+          paint();
+          setStatus(q, card);
+          updateProgress();
+
+          if (placedCount() === q.pieces.length) {
+            toast('十个数字全部进框，正好铺满。可以锁定了。');
+          }
+        }
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
+      });
+
+      el.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          rotate(piece, onBoard);
+        }
+      });
+    }
+
+    function paint() {
+      stage.innerHTML = '';
+      tray.innerHTML = '';
+
+      q.pieces.forEach(piece => {
+        const dims = dimsOf(piece);
+        const pos = answerPos[piece.d];
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'pack-piece';
+        el.dataset.digit = piece.d;
+        el.setAttribute('aria-label', pos
+          ? `数字 ${piece.d}，点击旋转 90°，也可以拖动`
+          : `数字 ${piece.d}，拖进方框，点击旋转`);
+
+        const glyph = document.createElement('span');
+        glyph.textContent = piece.d;
+        glyph.style.transform = `rotate(${(answerRot[piece.d] % 4) * 90}deg)`;
+        el.appendChild(glyph);
+
+        if (pos) {
+          el.style.left = `${(pos.x / q.frame) * 100}%`;
+          el.style.top = `${(pos.y / q.frame) * 100}%`;
+          el.style.width = `${(dims.w / q.frame) * 100}%`;
+          el.style.height = `${(dims.h / q.frame) * 100}%`;
+          el.classList.add('is-placed');
+          stage.appendChild(el);
+        } else {
+          el.style.width = `${dims.w * TRAY_CELL}px`;
+          el.style.height = `${dims.h * TRAY_CELL}px`;
+          tray.appendChild(el);
+        }
+
+        attachDrag(el, piece, Boolean(pos));
+      });
+
+      countEl.textContent = String(placedCount());
+      clearBtn.disabled = placedCount() === 0 || !!state.locked[q.id];
+      stage.classList.toggle('is-full', placedCount() === q.pieces.length);
+    }
+
+    clearBtn.addEventListener('click', () => {
+      if (state.locked[q.id]) return;
+      q.pieces.forEach(piece => delete answerPos[piece.d]);
       saveState();
       paint();
       setStatus(q, card);
@@ -692,7 +1146,7 @@
 
     const revealBtn = card.querySelector('[data-reveal]');
     revealBtn.hidden = true;
-    revealBtn.textContent = '看解析';
+    revealBtn.textContent = '看 AI 短板解析';
 
     const retryBtn = card.querySelector('[data-retry]');
     retryBtn.hidden = true;
@@ -735,8 +1189,27 @@
         颜色和字义打架时，人类也会慢半拍；但至少我们看得见颜色。模型连入场资格都没有。</p>`;
     }
 
-    if (q.answer) {
-      return `<div class="reveal-label">解析</div><p>${q.answer}</p>`;
+    if (q.analysis) {
+      const blocks = [
+        ['01 / 短板在哪', q.analysis.weak],
+        ['02 / 为什么模型不擅长', q.analysis.why],
+        ['03 / 主要考验什么能力', q.analysis.ability],
+        ['04 / 这个问题怎么解', q.analysis.fix]
+      ];
+      return `<div class="reveal-head">
+          <span class="reveal-label">AI 短板解析</span>
+          <p class="reveal-verdict">${q.analysis.verdict}</p>
+        </div>
+        <div class="reveal-grid">
+          ${blocks.map(([label, text]) => `<div class="reveal-block">
+            <span class="reveal-tag">${label}</span>
+            <p>${text}</p>
+          </div>`).join('')}
+          <div class="reveal-block reveal-block--human">
+            <span class="reveal-tag">05 / 人类现在什么水平</span>
+            <p>${q.analysis.human}</p>
+          </div>
+        </div>`;
     }
 
     return `<div class="reveal-label">解析</div>
@@ -747,7 +1220,7 @@
     const panel = card.querySelector('[data-reveal-panel]');
     const button = card.querySelector('[data-reveal]');
     panel.hidden = !panel.hidden;
-    button.textContent = panel.hidden ? '看解析' : '收起解析';
+    button.textContent = panel.hidden ? '看 AI 短板解析' : '收起解析';
   }
 
   function markStroopResults(q, card) {
@@ -788,7 +1261,13 @@
       case 'match':
         return q.letters.every(letter => String((answer.values || {})[letter] || '').trim() !== '');
       case 'mark':
+      case 'diff':
         return Array.isArray(answer.marks) && answer.marks.length > 0;
+      case 'lights':
+        return Array.isArray(answer.lights) && answer.lights.length > 0
+          && answer.lights.every(value => !value);
+      case 'pack':
+        return q.pieces.every(piece => answer.pos && answer.pos[piece.d]);
       case 'text':
         return String(answer.text || '').trim() !== '';
       case 'number':
@@ -808,6 +1287,9 @@
     switch (q.type) {
       case 'match': return 'A–E 五个编号都填上再锁定。';
       case 'mark': return '先在图上点一个你认为的位置。';
+      case 'diff': return '先在图上标出至少一处不同。';
+      case 'lights': return '还有灯亮着，全部关掉才能锁定。';
+      case 'pack': return '还有数字没放进方框。';
       case 'text': return '先写下你的答案。';
       case 'number': return '填一个数字再锁定。';
       case 'choice': return '先选一个选项。';
@@ -824,7 +1306,12 @@
       case 'match':
         return Object.values(answer.values || {}).some(value => String(value).trim() !== '');
       case 'mark':
+      case 'diff':
         return Array.isArray(answer.marks) && answer.marks.length > 0;
+      case 'lights':
+        return Array.isArray(answer.lights) && (answer.moves || 0) > 0;
+      case 'pack':
+        return Boolean(answer.pos) && Object.keys(answer.pos).length > 0;
       case 'text':
         return String(answer.text || '').trim() !== '';
       case 'number':
@@ -886,15 +1373,18 @@
   /* ========================================================
      分享 / 重置 / toast
      ======================================================== */
-  async function shareResults() {
+  async function shareResults(event) {
     const total = QUESTIONS.length;
     const done = QUESTIONS.filter(q => state.locked[q.id]).length;
     const text = done === 0
-      ? '《别问 AI 了，它真不会》：8 道人类一眼看穿、大模型集体沉默的小题。我还没敢开始，你先来？'
-      : `我在《别问 AI 了，它真不会》里解锁了 ${done}/${total} 题。8 道人类一眼看穿、大模型集体沉默的小题，你敢来试试吗？`;
+      ? '《别问 AI 了，它真不会》：6 道人类一眼看穿、大模型集体沉默的小题。我还没敢开始，你先来？'
+      : `我在《别问 AI 了，它真不会》里解锁了 ${done}/${total} 题。6 道人类一眼看穿、大模型集体沉默的小题，你敢来试试吗？`;
     const url = location.href;
+    const anchor = event && event.currentTarget;
 
-    if (navigator.share) {
+    // 桌面端浏览器调用 navigator.share 会弹系统分享面板，常常一闪就关；
+    // 只在触屏设备上使用系统分享，桌面端统一走复制。
+    if (typeof navigator.share === 'function' && window.matchMedia('(pointer: coarse)').matches) {
       try {
         await navigator.share({ title: '别问 AI 了，它真不会', text, url });
         return;
@@ -904,11 +1394,70 @@
     }
 
     const payload = `${text}\n${url}`;
-    try {
-      await navigator.clipboard.writeText(payload);
-      toast('战绩和链接已复制，去发群里。');
-    } catch (err) {
+    if (await copyText(payload)) {
+      showShareFeedback(anchor, '已复制战绩和链接，去粘贴给同事。');
+    } else {
       window.prompt('复制下面这段分享：', payload);
+    }
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (err) {
+        /* 权限被拒时退回 execCommand */
+      }
+    }
+    try {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.top = '-1000px';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      area.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy');
+      area.remove();
+      return ok;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  // 按钮旁的常驻回执，不会像 toast 一样自动消失
+  function showShareFeedback(anchor, message) {
+    const host = anchor && anchor.closest('.hero-actions, .score-actions');
+    if (host) {
+      let note = host.querySelector('.share-feedback');
+      if (!note) {
+        note = document.createElement('p');
+        note.className = 'share-feedback';
+        note.setAttribute('role', 'status');
+        host.appendChild(note);
+      }
+      note.textContent = message;
+    }
+    toast(message);
+  }
+
+  const IDEA_TEMPLATE = [
+    '【题目】一句话说清要答什么',
+    '【素材】图片 / 视频 / 动图（可附链接）',
+    '【坑点】人类一眼看出、模型容易错在哪',
+    '【答案】正确答案 + 一句解释',
+    '【署名】想挂的名字',
+    '【提交】https://github.com/king-jingxiang/1024/issues/new'
+  ].join('\n');
+
+  async function copyIdeaTemplate(button) {
+    if (await copyText(IDEA_TEMPLATE)) {
+      showShareFeedback(button, '投稿模板已复制，去 GitHub 开个 Issue 贴上就行。');
+    } else {
+      window.prompt('复制下面的投稿模板：', IDEA_TEMPLATE);
     }
   }
 
@@ -928,13 +1477,14 @@
       element = document.createElement('div');
       element.className = 'toast';
       element.setAttribute('role', 'status');
+      element.addEventListener('click', () => element.classList.remove('show'));
       document.body.appendChild(element);
     }
 
     element.textContent = message;
     element.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => element.classList.remove('show'), 2600);
+    toastTimer = setTimeout(() => element.classList.remove('show'), 4500);
   }
 
   /* ========================================================
@@ -942,12 +1492,16 @@
      ======================================================== */
   const CONSOLE_LINES = [
     ['$ ai-benchmark --suite=1024', ''],
-    ['[ok] 载入 8 道人类小题', ''],
+    ['[ok] 载入 6 道人类小题', ''],
     ['[ok] 模型置信度 99.9%', ''],
-    ['[run] 匹配鹅头与身体……', ''],
+    ['[run] 匹配仙鹤头与身体……', ''],
     ['[warn] 找到 5 只身体，0 个正确答案', 'warn'],
     ['[run] 在草丛里找四叶草……', ''],
     ['[fail] 已放弃寻找，开始冥想', 'fail'],
+    ['[run] 关掉 5×5 灯阵……', ''],
+    ['[fail] 25 个方程，解得满头是汗', 'fail'],
+    ['[run] 把 0–9 塞进方框……', ''],
+    ['[fail] 数字太大，装不下', 'fail'],
     ['[!] 结论：这题超纲了', 'fail']
   ];
 
@@ -1020,6 +1574,9 @@
     document.getElementById('heroShare').addEventListener('click', shareResults);
     document.getElementById('shareBtn').addEventListener('click', shareResults);
     document.getElementById('resetBtn').addEventListener('click', resetAll);
+
+    const ideaCopy = document.querySelector('[data-idea-copy]');
+    if (ideaCopy) ideaCopy.addEventListener('click', () => copyIdeaTemplate(ideaCopy));
   }
 
   init();
