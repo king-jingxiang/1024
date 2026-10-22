@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>进阶挑战 · 梯形与三角形版 · 别问 AI 了，它真不会</title>
+  <meta name="description" content="第六题进阶版：方框先切成矩形，再随机劈成三角形与梯形。块数自选，切法随机，但一定能拼回去。">
+  <meta name="theme-color" content="#101110">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%23101110'/%3E%3Ctext%20x='32'%20y='41'%20font-family='monospace'%20font-size='20'%20font-weight='bold'%20text-anchor='middle'%20fill='%23d9ff43'%3E1024%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css?v=6">
+  <link rel="stylesheet" href="advanced.css?v=2">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="index.html" aria-label="返回主页面">
+        <span class="brand-mark">1024</span>
+        <span class="brand-text">ADVANCED<br>POLYGON PACK</span>
+      </a>
+      <nav class="nav" aria-label="页面导航">
+        <a href="index.html">返回六道题</a>
+        <a href="#game">进阶棋盘</a>
+        <a href="#answerCard">查看答案</a>
+      </nav>
+      <div class="progress-pill" aria-live="polite">
+        <span class="dot"></span>
+        <span id="progressText">已放入 0 / 10</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="adv-hero">
+      <div class="wrap">
+        <div class="hero-kicker">
+          <span class="sticker">ADVANCED / 006+</span>
+          <a class="kicker-note back-link" href="index.html">← 回到第六题</a>
+        </div>
+        <h1>方框切碎了，<br><span class="hl">原样拼回去</span>。</h1>
+        <p class="hero-sub">
+          同一道第六题的进阶版：方框先被切成矩形，再随机劈成三角形和梯形。<br>
+          块数你来定，切法随机，但每一块都来自同一刀，所以一定有解。
+        </p>
+        <div class="hero-stats adv-stats">
+          <div><b>14×14</b><span>方框尺寸</span></div>
+          <div><b>4–16</b><span>可选块数</span></div>
+          <div><b>3</b><span>种分裂方式</span></div>
+          <div><b>90°</b><span>旋转粒度</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="adv-game" id="game">
+      <div class="wrap adv-layout">
+
+        <div class="board-card">
+          <div class="board-head">
+            <span class="play-title">方框 14 × 14</span>
+            <div class="board-stats">
+              <span>已放入 <b id="placedCount">0</b> / <b id="totalCount">10</b></span>
+              <span class="board-state" id="boardState" data-state="playing">拼图中</span>
+            </div>
+          </div>
+
+          <div class="adv-board" id="boardWrap">
+            <svg id="boardSvg" viewBox="0 0 14 14" preserveAspectRatio="xMidYMid meet" role="img" aria-label="14 乘 14 的拼图方框"></svg>
+          </div>
+
+          <div class="board-tray">
+            <div class="tray-head">
+              <span class="play-title">待放入的块</span>
+              <span id="trayHint">拖动进框 · 单击旋转</span>
+            </div>
+            <div class="adv-tray" id="tray" aria-live="polite"></div>
+          </div>
+
+          <div class="board-foot">
+            <span class="board-tip">拖动进框 · 单击旋转 90° · 框内的块可拖回下方</span>
+            <button class="mini-btn" id="clearBoard" type="button">全部取出</button>
+          </div>
+        </div>
+
+        <aside class="adv-side">
+          <div class="side-card">
+            <label class="play-title" for="pieceCount">分块数量</label>
+            <div class="control-row">
+              <select id="pieceCount" class="adv-select" aria-label="选择分块数量">
+                <option value="4">4 块</option>
+                <option value="5">5 块</option>
+                <option value="6">6 块</option>
+                <option value="8">8 块</option>
+                <option value="10" selected>10 块</option>
+                <option value="12">12 块</option>
+                <option value="14">14 块</option>
+                <option value="16">16 块</option>
+              </select>
+              <button class="btn btn-primary" id="regenBtn" type="button">重新生成</button>
+            </div>
+            <p class="play-note">切换块数会立即换一局。块数越多，形状越碎，直线段也越多。</p>
+          </div>
+
+          <div class="side-card answer-card" id="answerCard">
+            <div class="answer-head">
+              <span class="play-title">查看答案</span>
+              <span class="lock-badge" id="lockBadge" data-state="locked">LOCKED</span>
+            </div>
+            <form id="answerForm" autocomplete="off">
+              <label class="sr-only" for="answerKey">答案密码</label>
+              <div class="answer-row">
+                <input id="answerKey" type="password" inputmode="numeric" maxlength="12" placeholder="输入密码" autocomplete="off">
+                <button class="btn btn-ghost" type="submit">解锁</button>
+              </div>
+              <p class="play-note">答案区域需要密码。提示：和这个节日有关。</p>
+            </form>
+            <div class="answer-body" id="answerBody" hidden>
+              <div class="solution-frame" id="solutionFrame"></div>
+              <p class="answer-note">这是出题时的原始切法。旋转过的块形状不变，只是方向不同。</p>
+            </div>
+          </div>
+        </aside>
+
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-mark">1024</span>
+        <p>1024 · 程序员节特别企划<br>第六题进阶版。答错不丢人，问 AI 才丢人。</p>
+      </div>
+      <p class="footer-meta">
+        <a href="index.html">← 返回《别问 AI 了，它真不会》</a><br>
+        <a href="https://github.com/king-jingxiang/1024/issues/new" target="_blank" rel="noopener">有更狠的题？开个 Issue ↗</a>
+      </p>
+    </div>
+  </footer>
+
+  <noscript>
+    <div class="noscript">这道进阶题需要 JavaScript 才能生成和拖动，请开启后再来。</div>
+  </noscript>
+
+  <script src="advanced.js?v=2"></script>
+</body>
+</html>

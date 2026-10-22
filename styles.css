@@ -1218,6 +1218,49 @@ h1 {
 
 .pack-ghost > span { font-size: 72cqmin; line-height: 1; }
 
+.advanced-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px dashed rgba(16, 17, 16, .3);
+  border-radius: 10px;
+  background: rgba(217, 255, 67, .14);
+  color: var(--ink);
+  text-decoration: none;
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
+}
+
+.advanced-link:hover {
+  border-color: var(--ink);
+  background: rgba(217, 255, 67, .32);
+  transform: translateY(-1px);
+}
+
+.advanced-link span { display: flex; flex-direction: column; gap: 2px; }
+
+.advanced-link b {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+
+.advanced-link small {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: .03em;
+  color: rgba(16, 17, 16, .5);
+}
+
+.advanced-link i {
+  flex: none;
+  font-style: normal;
+  font-size: 18px;
+  font-weight: 800;
+}
+
 /* stroop */
 .stroop-head {
   display: flex;

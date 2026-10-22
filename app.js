@@ -407,7 +407,14 @@
         <div class="pack-tray-head">待放入的数字 <span>拖动进框 · 点击旋转 90° · 框内的块可拖回这里</span></div>
         <div class="pack-tray" data-pack-tray></div>
         <button class="mini-btn" data-pack-clear type="button">全部取出</button>
-        <p class="play-note">数字块尺寸各不相同，不能重叠，也不能超出方框。摆不平的时候，试试让它们横过来。</p>`;
+        <p class="play-note">数字块尺寸各不相同，不能重叠，也不能超出方框。摆不平的时候，试试让它们横过来。</p>
+        <a class="advanced-link" href="advanced.html">
+          <span>
+            <b>进阶挑战 · 梯形与三角形</b>
+            <small>自选块数 · 随机分裂 · 可查看答案</small>
+          </span>
+          <i aria-hidden="true">↗</i>
+        </a>`;
     }
 
     if (q.type === 'text') {
